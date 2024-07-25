@@ -2,6 +2,7 @@ import aiohttp
 import asyncio
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
 from urllib.parse import urlparse
 import sys
 
@@ -19,15 +20,33 @@ async def download_image(session, url, file_path):
     except Exception as e:
         return url, None, False
 
+def run_in_thread(loop, func, *args):
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(func(*args))
+
+def run_in_process(loop, func, *args):
+    asyncio.run(func(*args))
+
 async def download_images(urls, file_path):
     os.makedirs(file_path, exist_ok=True)
     async with aiohttp.ClientSession() as session:
         tasks = []
         start_time = time.time()
-        for url in urls:
-            task = asyncio.create_task(download_image(session, url, file_path))
-            tasks.append(task)
-        results = await asyncio.gather(*tasks)
+
+        # Используем ThreadPoolExecutor для многопоточного выполнения
+        with ThreadPoolExecutor() as executor:
+            loop = asyncio.get_event_loop()
+            for url in urls:
+                tasks.append(loop.run_in_executor(executor, download_image, session, url, file_path))
+            results = await asyncio.gather(*tasks)
+        
+        # Используем ProcessPoolExecutor для многопроцессорного выполнения
+        with ProcessPoolExecutor() as executor:
+            loop = asyncio.new_event_loop()
+            for url in urls:
+                tasks.append(loop.run_in_executor(executor, download_image, session, url, file_path))
+            results = await asyncio.gather(*tasks)
+        
         total_time = time.time() - start_time
 
         for url, filename, success in results:
@@ -47,4 +66,4 @@ if __name__ == "__main__":
         print("Usage: python script.py <save_directory> <url1> <url2> ...")
 
 
-#На тест в bash: python script.py "C:\Users\User\Desktop\Multitask_intro\images" https://upload.wikimedia.org/wikipedia/en/d/da/I_Don%27t_Like_It_-_Pauline_Pantsdown_%28album_cover%29.jpg
+#На тест в bash под windows: python script.py "C:\Users\User\Desktop\Multitask_intro\images" https://upload.wikimedia.org/wikipedia/en/d/da/I_Don%27t_Like_It_-_Pauline_Pantsdown_%28album_cover%29.jpg
